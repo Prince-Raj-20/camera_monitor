@@ -104,112 +104,89 @@
 </div>
 
 <script>
-// ── Clock ──
-const tsEl = document.getElementById('ts');
-setInterval(() => {
-  const n = new Date();
-  tsEl.textContent =
-    n.toLocaleDateString('en-GB') + '  ' + n.toTimeString().slice(0, 8);
-}, 1000);
-
+// UI refs
 const $ = id => document.getElementById(id);
 const roomInput = $('roomId'), startBtn = $('startBtn'), stopBtn = $('stopBtn');
 const dot = $('dot'), stTxt = $('stTxt'), recBadge = $('recBadge');
-const localVid = $('localVid'), ph = $('ph'), phTxt = $('phTxt'), res = $('res');
-const shareRow = $('shareRow'), shareLink = $('shareLink'), copyBtn = $('copyBtn');
+const shareRow = $('shareRow'), shareLink = $('shareLink');
 
 let peer, currentStream, calls = [];
 
-function status(msg, type = '') {
+function status(msg, type='') {
   stTxt.textContent = msg;
   stTxt.className = type;
   dot.className = 'dot' + (type ? ' ' + type : '');
 }
 
-// ── Copy link ──
-copyBtn.onclick = () => {
-  navigator.clipboard.writeText(shareLink.textContent);
-  copyBtn.textContent = '✓ COPIED';
-  setTimeout(() => (copyBtn.textContent = 'COPY'), 2000);
+// 🔥 ICE SERVERS (IMPORTANT)
+const PEER_CONFIG = {
+  host: "peerjs-server.herokuapp.com",
+  secure: true,
+  port: 443,
+  config: {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:global.stun.twilio.com:3478" },
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      }
+    ]
+  },
+  debug: 2
 };
 
-// ── ICE SERVERS (IMPORTANT FIX) ──
-const iceConfig = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:global.stun.twilio.com:3478" },
-    {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    }
-  ]
-};
-
-// ── Start Broadcast ──
+// ▶ START (MIC)
 startBtn.onclick = async () => {
   const room = roomInput.value.trim().toUpperCase();
   if (!room) {
-    status('⚠ ENTER ROOM CODE', 'error');
+    status('⚠ ENTER ROOM CODE','error');
     return;
   }
 
   startBtn.disabled = true;
-  status('STARTING CAMERA…');
-  phTxt.textContent = 'STARTING CAMERA…';
+  status('STARTING MICROPHONE...');
 
-  // Get Camera
   try {
     currentStream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true
+      audio: true,
+      video: false
     });
   } catch (e) {
-    status('⚠ CAMERA ACCESS DENIED', 'error');
+    status('⚠ MICROPHONE DENIED','error');
     startBtn.disabled = false;
     return;
   }
 
-  localVid.srcObject = currentStream;
-  ph.style.display = 'none';
+  status('CONNECTING...');
 
-  const s = currentStream.getVideoTracks()[0].getSettings();
-  res.textContent = `${s.width || '?'}×${s.height || '?'}`;
-
-  status('CONNECTING TO SERVER…');
-
-  const peerId = 'CCTV-ROOM-' + room;
+  const peerId = 'AUDIO-ROOM-' + room;
 
   if (peer) {
-    try { peer.destroy(); } catch (e) {}
+    try { peer.destroy(); } catch(e) {}
   }
 
-  // ── FIXED PEER CONFIG ──
-  peer = new Peer(peerId, {
-    debug: 2,
-    config: iceConfig
-  });
+  peer = new Peer(peerId, PEER_CONFIG);
 
   peer.on('open', () => {
-    status('LIVE — ROOM: ' + room, 'live');
+    status('LIVE AUDIO — ROOM: ' + room, 'live');
     recBadge.classList.remove('hidden');
     stopBtn.disabled = false;
     roomInput.disabled = true;
 
-    const link =
-      'https://prince-raj-20.github.io/camera_monitor/viewer.html?room=' +
-      encodeURIComponent(room);
-
+    const link = location.origin + location.pathname.replace('broadcaster','viewer') + '?room=' + room;
     shareLink.textContent = link;
     shareRow.style.display = 'flex';
   });
 
-  // When viewer connects
+  // Send audio to viewers
   peer.on('call', call => {
     call.answer(currentStream);
     calls.push(call);
@@ -217,64 +194,42 @@ startBtn.onclick = async () => {
     call.on('close', () => {
       calls = calls.filter(c => c !== call);
     });
-
-    call.on('error', () => {
-      calls = calls.filter(c => c !== call);
-    });
   });
 
   peer.on('error', e => {
-    console.error(e);
-
-    if (e.type === 'unavailable-id') {
-      status('⚠ ROOM ALREADY IN USE', 'error');
-    } else {
-      status('⚠ ERROR: ' + e.type, 'error');
-    }
-
+    status('⚠ ERROR: ' + e.type,'error');
     startBtn.disabled = false;
-    cleanupStream();
-  });
-
-  peer.on('disconnected', () => {
-    status('⚠ DISCONNECTED — RETRYING...', 'error');
-    peer.reconnect();
+    cleanup();
   });
 };
 
-// ── Stop ──
-stopBtn.onclick = stop;
-
-function stop() {
-  calls.forEach(c => { try { c.close(); } catch (e) {} });
+// ⏹ STOP
+stopBtn.onclick = () => {
+  calls.forEach(c => { try { c.close(); } catch(e) {} });
   calls = [];
 
   if (peer) {
-    try { peer.destroy(); } catch (e) {}
+    try { peer.destroy(); } catch(e) {}
     peer = null;
   }
 
-  cleanupStream();
+  cleanup();
 
   recBadge.classList.add('hidden');
   stopBtn.disabled = true;
   startBtn.disabled = false;
   roomInput.disabled = false;
   shareRow.style.display = 'none';
-  res.textContent = '';
 
-  status('STANDBY — ENTER ROOM CODE');
-}
+  status('STANDBY');
+};
 
-// ── Cleanup ──
-function cleanupStream() {
+// Cleanup
+function cleanup() {
   if (currentStream) {
     currentStream.getTracks().forEach(t => t.stop());
     currentStream = null;
   }
-  localVid.srcObject = null;
-  ph.style.display = 'flex';
-  phTxt.textContent = 'CAMERA STANDBY';
 }
 </script>
 
