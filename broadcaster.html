@@ -106,130 +106,177 @@
 <script>
 // ── Clock ──
 const tsEl = document.getElementById('ts');
-setInterval(() => { const n=new Date(); tsEl.textContent=n.toLocaleDateString('en-GB')+'  '+n.toTimeString().slice(0,8); }, 1000);
+setInterval(() => {
+  const n = new Date();
+  tsEl.textContent =
+    n.toLocaleDateString('en-GB') + '  ' + n.toTimeString().slice(0, 8);
+}, 1000);
 
 const $ = id => document.getElementById(id);
-const roomInput = $('roomId'), startBtn=$('startBtn'), stopBtn=$('stopBtn');
-const dot=$('dot'), stTxt=$('stTxt'), recBadge=$('recBadge');
-const localVid=$('localVid'), ph=$('ph'), phTxt=$('phTxt'), res=$('res');
-const shareRow=$('shareRow'), shareLink=$('shareLink'), copyBtn=$('copyBtn');
+const roomInput = $('roomId'), startBtn = $('startBtn'), stopBtn = $('stopBtn');
+const dot = $('dot'), stTxt = $('stTxt'), recBadge = $('recBadge');
+const localVid = $('localVid'), ph = $('ph'), phTxt = $('phTxt'), res = $('res');
+const shareRow = $('shareRow'), shareLink = $('shareLink'), copyBtn = $('copyBtn');
 
 let peer, currentStream, calls = [];
 
-function status(msg, type='') {
+function status(msg, type = '') {
   stTxt.textContent = msg;
   stTxt.className = type;
-  dot.className = 'dot' + (type ? ' '+type : '');
+  dot.className = 'dot' + (type ? ' ' + type : '');
 }
 
-// ── Copy viewer link ──
+// ── Copy link ──
 copyBtn.onclick = () => {
-  const txt = shareLink.textContent;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(txt).then(() => { copyBtn.textContent='✓ COPIED'; setTimeout(()=>copyBtn.textContent='COPY',2000); });
-  } else {
-    const r=document.createRange(); r.selectNode(shareLink);
-    window.getSelection().removeAllRanges(); window.getSelection().addRange(r);
-    document.execCommand('copy');
-    copyBtn.textContent='✓ COPIED'; setTimeout(()=>copyBtn.textContent='COPY',2000);
-  }
+  navigator.clipboard.writeText(shareLink.textContent);
+  copyBtn.textContent = '✓ COPIED';
+  setTimeout(() => (copyBtn.textContent = 'COPY'), 2000);
 };
 
-// ── Start ──
+// ── ICE SERVERS (IMPORTANT FIX) ──
+const iceConfig = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:global.stun.twilio.com:3478" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    }
+  ]
+};
+
+// ── Start Broadcast ──
 startBtn.onclick = async () => {
   const room = roomInput.value.trim().toUpperCase();
-  if (!room) { status('⚠ ENTER A ROOM CODE','error'); return; }
+  if (!room) {
+    status('⚠ ENTER ROOM CODE', 'error');
+    return;
+  }
 
   startBtn.disabled = true;
   status('STARTING CAMERA…');
   phTxt.textContent = 'STARTING CAMERA…';
 
-  // Get camera
+  // Get Camera
   try {
     currentStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: true
     });
-  } catch(e) {
-    try { currentStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true }); }
-    catch(e2) { status('⚠ CAMERA DENIED — ALLOW IN BROWSER','error'); startBtn.disabled=false; return; }
+  } catch (e) {
+    status('⚠ CAMERA ACCESS DENIED', 'error');
+    startBtn.disabled = false;
+    return;
   }
 
   localVid.srcObject = currentStream;
   ph.style.display = 'none';
+
   const s = currentStream.getVideoTracks()[0].getSettings();
-  res.textContent = `${s.width||'?'}×${s.height||'?'}`;
+  res.textContent = `${s.width || '?'}×${s.height || '?'}`;
 
   status('CONNECTING TO SERVER…');
 
-  // ── PeerJS — broadcaster peer ID = "CCTV-" + roomcode ──
   const peerId = 'CCTV-ROOM-' + room;
 
-  // Destroy old peer if exists
-  if (peer) { try{peer.destroy();}catch(e){} }
+  if (peer) {
+    try { peer.destroy(); } catch (e) {}
+  }
 
+  // ── FIXED PEER CONFIG ──
   peer = new Peer(peerId, {
-    host: '0.peerjs.com',
-    port: 443,
-    secure: true,
-    path: '/',
-    debug: 0
+    debug: 2,
+    config: iceConfig
   });
 
-  peer.on('open', id => {
-    status('BROADCASTING — ROOM: ' + room, 'live');
+  peer.on('open', () => {
+    status('LIVE — ROOM: ' + room, 'live');
     recBadge.classList.remove('hidden');
     stopBtn.disabled = false;
     roomInput.disabled = true;
 
-    const vUrl = 'https://prince-raj-20.github.io/camera_monitor/viewer.html?room=' + encodeURIComponent(room);
-    shareLink.textContent = vUrl;
+    const link =
+      'https://prince-raj-20.github.io/camera_monitor/viewer.html?room=' +
+      encodeURIComponent(room);
+
+    shareLink.textContent = link;
     shareRow.style.display = 'flex';
   });
 
-  // When a viewer calls in, answer with our stream
+  // When viewer connects
   peer.on('call', call => {
     call.answer(currentStream);
     calls.push(call);
-    call.on('close', () => { calls = calls.filter(c=>c!==call); });
+
+    call.on('close', () => {
+      calls = calls.filter(c => c !== call);
+    });
+
+    call.on('error', () => {
+      calls = calls.filter(c => c !== call);
+    });
   });
 
   peer.on('error', e => {
+    console.error(e);
+
     if (e.type === 'unavailable-id') {
-      status('⚠ ROOM CODE TAKEN — CHOOSE ANOTHER','error');
+      status('⚠ ROOM ALREADY IN USE', 'error');
     } else {
-      status('⚠ SERVER ERROR: ' + e.type,'error');
+      status('⚠ ERROR: ' + e.type, 'error');
     }
+
     startBtn.disabled = false;
     cleanupStream();
   });
 
   peer.on('disconnected', () => {
-    status('⚠ DISCONNECTED FROM SERVER','error');
+    status('⚠ DISCONNECTED — RETRYING...', 'error');
+    peer.reconnect();
   });
 };
 
 // ── Stop ──
 stopBtn.onclick = stop;
+
 function stop() {
-  calls.forEach(c => { try{c.close();}catch(e){} });
+  calls.forEach(c => { try { c.close(); } catch (e) {} });
   calls = [];
-  if (peer) { try{peer.destroy();}catch(e){} peer=null; }
+
+  if (peer) {
+    try { peer.destroy(); } catch (e) {}
+    peer = null;
+  }
+
   cleanupStream();
+
   recBadge.classList.add('hidden');
-  stopBtn.disabled=true; startBtn.disabled=false;
-  roomInput.disabled=false;
-  shareRow.style.display='none';
-  res.textContent='';
+  stopBtn.disabled = true;
+  startBtn.disabled = false;
+  roomInput.disabled = false;
+  shareRow.style.display = 'none';
+  res.textContent = '';
+
   status('STANDBY — ENTER ROOM CODE');
 }
 
+// ── Cleanup ──
 function cleanupStream() {
-  if (currentStream) { currentStream.getTracks().forEach(t=>t.stop()); currentStream=null; }
-  localVid.srcObject=null;
-  ph.style.display='flex';
-  phTxt.textContent='CAMERA STANDBY';
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
+  }
+  localVid.srcObject = null;
+  ph.style.display = 'flex';
+  phTxt.textContent = 'CAMERA STANDBY';
 }
 </script>
+
 </body>
 </html>
