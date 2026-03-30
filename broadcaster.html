@@ -4,86 +4,90 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <title>CCTV Broadcaster</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/rtcmulticonnection@3.6.9/dist/RTCMultiConnection.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     --red: #ff2020; --green: #00ff88; --amber: #ffb300;
     --bg: #080c0a; --panel: #0d1410; --border: #1a2e1e;
-    --text: #c8ffd8; --dim: #4a7a5a;
-    --mono: 'Share Tech Mono', monospace; --display: 'Orbitron', sans-serif;
+    --dim: #4a7a5a;
+    --mono: 'Share Tech Mono', monospace;
+    --display: 'Orbitron', sans-serif;
   }
-  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); overflow: hidden; }
-  body::before { content: ''; position: fixed; inset: 0; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,136,0.015) 2px, rgba(0,255,136,0.015) 4px); pointer-events: none; z-index: 9999; }
-  body::after { content: ''; position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.7) 100%); pointer-events: none; z-index: 9998; }
-  .header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); position: relative; z-index: 10; }
-  .logo { font-family: var(--display); font-size: 13px; font-weight: 900; letter-spacing: 4px; color: var(--green); }
-  .rec-badge { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 2px; color: var(--red); font-family: var(--display); }
-  .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); animation: blink 1s infinite; }
+  html, body { height: 100%; background: var(--bg); color: #c8ffd8; font-family: var(--mono); overflow: hidden; }
+  body::before { content:''; position:fixed; inset:0; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,136,0.015) 2px,rgba(0,255,136,0.015) 4px); pointer-events:none; z-index:9999; }
+  body::after  { content:''; position:fixed; inset:0; background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,0.7) 100%); pointer-events:none; z-index:9998; }
+
+  .header { display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-bottom:1px solid var(--border); background:var(--panel); z-index:10; position:relative; }
+  .logo { font-family:var(--display); font-size:13px; font-weight:900; letter-spacing:4px; color:var(--green); }
+  .rec-badge { display:flex; align-items:center; gap:8px; font-size:11px; letter-spacing:2px; color:var(--red); font-family:var(--display); }
+  .rec-dot { width:10px; height:10px; border-radius:50%; background:var(--red); box-shadow:0 0 10px var(--red); animation:blink 1s infinite; }
   @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
-  .rec-badge.hidden { opacity: 0; }
-  .video-wrap { position: relative; width: 100%; height: calc(100vh - 56px - 150px); background: #000; overflow: hidden; }
-  video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .corner { position: absolute; width: 24px; height: 24px; border-color: var(--green); border-style: solid; opacity: 0.8; }
-  .corner.tl { top:12px;left:12px; border-width:2px 0 0 2px; }
-  .corner.tr { top:12px;right:12px; border-width:2px 2px 0 0; }
-  .corner.bl { bottom:12px;left:12px; border-width:0 0 2px 2px; }
-  .corner.br { bottom:12px;right:12px; border-width:0 2px 2px 0; }
-  .timestamp { position: absolute; bottom: 14px; left: 14px; font-size: 11px; color: var(--green); opacity: 0.85; letter-spacing: 1px; }
-  .res-tag { position: absolute; top: 14px; right: 14px; font-size: 10px; color: var(--amber); letter-spacing: 2px; opacity: 0.75; }
-  .placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #050806; }
-  .cam-icon { font-size: 64px; opacity: 0.15; }
-  .placeholder-text { font-family: var(--display); font-size: 12px; letter-spacing: 3px; color: var(--dim); text-align: center; padding: 0 20px; }
-  .bottom { padding: 12px 16px; background: var(--panel); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
-  .room-row { display: flex; gap: 8px; align-items: center; }
-  .room-input { flex: 1; background: #0a160d; border: 1px solid var(--border); border-radius: 4px; padding: 9px 12px; font-family: var(--mono); font-size: 13px; color: var(--green); outline: none; letter-spacing: 2px; text-transform: uppercase; transition: border-color .2s; }
-  .room-input:focus { border-color: var(--green); }
-  .room-input::placeholder { color: var(--dim); letter-spacing: 1px; }
-  .btn { padding: 9px 18px; border: none; border-radius: 4px; font-family: var(--display); font-size: 11px; font-weight: 700; letter-spacing: 2px; cursor: pointer; transition: all .2s; white-space: nowrap; }
-  .btn-go { background: var(--green); color: #030804; }
-  .btn-go:hover { box-shadow: 0 0 16px var(--green); transform: scale(1.02); }
-  .btn-stop { background: var(--red); color: #fff; }
-  .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
-  .share-row { display: flex; align-items: center; gap: 8px; }
-  .share-label { color: var(--dim); font-size: 10px; letter-spacing: 1px; white-space: nowrap; }
-  .share-link { flex: 1; background: #050806; border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: var(--mono); font-size: 10px; color: var(--amber); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: all; }
-  .btn-copy { background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--amber); font-family: var(--mono); font-size: 10px; padding: 6px 10px; cursor: pointer; transition: all .2s; white-space: nowrap; }
-  .btn-copy:hover { border-color: var(--amber); }
-  .status-bar { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--dim); letter-spacing: 1px; }
-  .status-left { display: flex; align-items: center; gap: 8px; }
-  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); transition: all .3s; }
-  .status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
-  .status-dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .rec-badge.hidden { opacity:0; }
+
+  .video-wrap { position:relative; width:100%; height:calc(100vh - 56px - 155px); background:#000; overflow:hidden; }
+  video { width:100%; height:100%; object-fit:cover; display:block; }
+  .corner { position:absolute; width:24px; height:24px; border-color:var(--green); border-style:solid; opacity:0.8; }
+  .corner.tl{top:12px;left:12px;border-width:2px 0 0 2px}
+  .corner.tr{top:12px;right:12px;border-width:2px 2px 0 0}
+  .corner.bl{bottom:12px;left:12px;border-width:0 0 2px 2px}
+  .corner.br{bottom:12px;right:12px;border-width:0 2px 2px 0}
+  .ts { position:absolute; bottom:14px; left:14px; font-size:11px; color:var(--green); opacity:.85; letter-spacing:1px; }
+  .res { position:absolute; top:14px; right:14px; font-size:10px; color:var(--amber); letter-spacing:2px; opacity:.75; }
+  .placeholder { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:#050806; }
+  .cam-icon { font-size:60px; opacity:.15; }
+  .ph-text { font-family:var(--display); font-size:11px; letter-spacing:3px; color:var(--dim); text-align:center; padding:0 16px; line-height:1.8; }
+
+  .bottom { padding:12px 16px; background:var(--panel); border-top:1px solid var(--border); display:flex; flex-direction:column; gap:10px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .room-input { flex:1; background:#0a160d; border:1px solid var(--border); border-radius:4px; padding:9px 12px; font-family:var(--mono); font-size:13px; color:var(--green); outline:none; letter-spacing:2px; text-transform:uppercase; }
+  .room-input:focus { border-color:var(--green); }
+  .room-input::placeholder { color:var(--dim); }
+  .btn { padding:9px 16px; border:none; border-radius:4px; font-family:var(--display); font-size:11px; font-weight:700; letter-spacing:2px; cursor:pointer; transition:all .2s; white-space:nowrap; }
+  .btn-go  { background:var(--green); color:#030804; }
+  .btn-go:hover  { box-shadow:0 0 16px var(--green); }
+  .btn-stop{ background:var(--red); color:#fff; }
+  .btn:disabled { opacity:.35; cursor:not-allowed; }
+
+  .share-row { display:flex; align-items:center; gap:8px; }
+  .share-label { color:var(--dim); font-size:10px; letter-spacing:1px; white-space:nowrap; }
+  .share-link { flex:1; background:#050806; border:1px solid var(--border); border-radius:4px; padding:6px 10px; font-family:var(--mono); font-size:10px; color:var(--amber); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; user-select:all; }
+  .btn-copy { background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--amber); font-family:var(--mono); font-size:10px; padding:6px 10px; cursor:pointer; white-space:nowrap; }
+  .btn-copy:hover { border-color:var(--amber); }
+
+  .status-bar { display:flex; align-items:center; gap:8px; font-size:10px; color:var(--dim); letter-spacing:1px; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--dim); flex-shrink:0; transition:all .3s; }
+  .dot.live  { background:var(--green); box-shadow:0 0 8px var(--green); animation:pulse 2s infinite; }
+  .dot.error { background:var(--red);   box-shadow:0 0 8px var(--red); }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-  #statusText.live { color: var(--green); }
-  #statusText.error { color: var(--red); }
-  .viewer-count { font-family: var(--display); font-size: 10px; color: var(--amber); letter-spacing: 2px; }
+  #stTxt.live  { color:var(--green); }
+  #stTxt.error { color:var(--red); }
 </style>
 </head>
 <body>
+
 <div class="header">
   <div class="logo">📡 CCTV-CAM</div>
-  <div class="rec-badge hidden" id="recBadge"><div class="rec-dot"></div> LIVE</div>
+  <div class="rec-badge hidden" id="recBadge"><div class="rec-dot"></div>LIVE</div>
 </div>
 
 <div class="video-wrap">
-  <div class="placeholder" id="placeholder">
+  <div class="placeholder" id="ph">
     <div class="cam-icon">📷</div>
-    <div class="placeholder-text" id="placeholderText">CAMERA STANDBY</div>
+    <div class="ph-text" id="phTxt">CAMERA STANDBY</div>
   </div>
-  <video id="localVideo" autoplay muted playsinline></video>
+  <video id="localVid" autoplay muted playsinline></video>
   <div class="corner tl"></div><div class="corner tr"></div>
   <div class="corner bl"></div><div class="corner br"></div>
-  <div class="timestamp" id="tsOverlay"></div>
-  <div class="res-tag" id="resTag"></div>
+  <div class="ts" id="ts"></div>
+  <div class="res" id="res"></div>
 </div>
 
 <div class="bottom">
-  <div class="room-row">
-    <input class="room-input" id="roomId" placeholder="ENTER ROOM CODE" maxlength="20" />
-    <button class="btn btn-go" id="startBtn">▶ BROADCAST</button>
+  <div class="row">
+    <input class="room-input" id="roomId" placeholder="ENTER ROOM CODE" maxlength="20"/>
+    <button class="btn btn-go"   id="startBtn">▶ BROADCAST</button>
     <button class="btn btn-stop" id="stopBtn" disabled>■ STOP</button>
   </div>
 
@@ -94,175 +98,137 @@
   </div>
 
   <div class="status-bar">
-    <div class="status-left">
-      <div class="status-dot" id="statusDot"></div>
-      <span id="statusText">STANDBY — ENTER ROOM CODE</span>
-    </div>
-    <div class="viewer-count" id="viewerCount"></div>
+    <div class="dot" id="dot"></div>
+    <span id="stTxt">STANDBY — ENTER ROOM CODE</span>
   </div>
 </div>
 
 <script>
-const tsEl = document.getElementById('tsOverlay');
-function tick() { const n=new Date(); tsEl.textContent=n.toLocaleDateString('en-GB')+'  '+n.toTimeString().slice(0,8); }
-tick(); setInterval(tick,1000);
+// ── Clock ──
+const tsEl = document.getElementById('ts');
+setInterval(() => { const n=new Date(); tsEl.textContent=n.toLocaleDateString('en-GB')+'  '+n.toTimeString().slice(0,8); }, 1000);
 
-const roomInput    = document.getElementById('roomId');
-const startBtn     = document.getElementById('startBtn');
-const stopBtn      = document.getElementById('stopBtn');
-const statusDot    = document.getElementById('statusDot');
-const statusText   = document.getElementById('statusText');
-const viewerEl     = document.getElementById('viewerCount');
-const recBadge     = document.getElementById('recBadge');
-const localVideo   = document.getElementById('localVideo');
-const placeholder  = document.getElementById('placeholder');
-const placeholderText = document.getElementById('placeholderText');
-const resTag       = document.getElementById('resTag');
-const shareRow     = document.getElementById('shareRow');
-const shareLink    = document.getElementById('shareLink');
-const copyBtn      = document.getElementById('copyBtn');
+const $ = id => document.getElementById(id);
+const roomInput = $('roomId'), startBtn=$('startBtn'), stopBtn=$('stopBtn');
+const dot=$('dot'), stTxt=$('stTxt'), recBadge=$('recBadge');
+const localVid=$('localVid'), ph=$('ph'), phTxt=$('phTxt'), res=$('res');
+const shareRow=$('shareRow'), shareLink=$('shareLink'), copyBtn=$('copyBtn');
 
-let connection, currentStream;
+let peer, currentStream, calls = [];
 
-// List of signalling servers to try in order
-const SERVERS = [
-  'https://muazkhan.com:9001/',
-  'https://rtcmulticonnection.herokuapp.com:443/',
-  'https://webrtcweb.com:9001/'
-];
-
-function setStatus(msg, type='') {
-  statusText.textContent = msg;
-  statusText.className = type;
-  statusDot.className = 'status-dot' + (type ? ' ' + type : '');
+function status(msg, type='') {
+  stTxt.textContent = msg;
+  stTxt.className = type;
+  dot.className = 'dot' + (type ? ' '+type : '');
 }
 
-copyBtn.addEventListener('click', () => {
-  navigator.clipboard.writeText(shareLink.textContent).then(() => {
-    copyBtn.textContent = '✓ COPIED';
-    setTimeout(() => copyBtn.textContent = 'COPY', 2000);
-  }).catch(() => {
-    // fallback for older browsers
-    const el = document.getElementById('shareLink');
-    const range = document.createRange();
-    range.selectNode(el);
-    window.getSelection().removeAllRanges();
-    window.getSelection().addRange(range);
+// ── Copy viewer link ──
+copyBtn.onclick = () => {
+  const txt = shareLink.textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(txt).then(() => { copyBtn.textContent='✓ COPIED'; setTimeout(()=>copyBtn.textContent='COPY',2000); });
+  } else {
+    const r=document.createRange(); r.selectNode(shareLink);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(r);
     document.execCommand('copy');
-    copyBtn.textContent = '✓ COPIED';
-    setTimeout(() => copyBtn.textContent = 'COPY', 2000);
-  });
-});
+    copyBtn.textContent='✓ COPIED'; setTimeout(()=>copyBtn.textContent='COPY',2000);
+  }
+};
 
-startBtn.addEventListener('click', async () => {
+// ── Start ──
+startBtn.onclick = async () => {
   const room = roomInput.value.trim().toUpperCase();
-  if (!room) { setStatus('⚠ ENTER A ROOM CODE', 'error'); return; }
+  if (!room) { status('⚠ ENTER A ROOM CODE','error'); return; }
 
   startBtn.disabled = true;
-  setStatus('INITIALISING CAMERA…');
-  placeholderText.textContent = 'STARTING CAMERA…';
+  status('STARTING CAMERA…');
+  phTxt.textContent = 'STARTING CAMERA…';
 
+  // Get camera
   try {
     currentStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:720} },
+      video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
       audio: true
     });
   } catch(e) {
-    try {
-      currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    } catch(e2) {
-      setStatus('⚠ CAMERA ACCESS DENIED — CHECK BROWSER PERMISSIONS', 'error');
-      startBtn.disabled = false;
-      placeholderText.textContent = 'CAMERA STANDBY';
-      return;
-    }
+    try { currentStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true }); }
+    catch(e2) { status('⚠ CAMERA DENIED — ALLOW IN BROWSER','error'); startBtn.disabled=false; return; }
   }
 
-  localVideo.srcObject = currentStream;
-  placeholder.style.display = 'none';
+  localVid.srcObject = currentStream;
+  ph.style.display = 'none';
   const s = currentStream.getVideoTracks()[0].getSettings();
-  resTag.textContent = `${s.width||'?'}×${s.height||'?'}`;
+  res.textContent = `${s.width||'?'}×${s.height||'?'}`;
 
-  tryServer(room, 0);
-});
+  status('CONNECTING TO SERVER…');
 
-function tryServer(room, index) {
-  if (index >= SERVERS.length) {
-    setStatus('⚠ ALL SERVERS FAILED — CHECK YOUR INTERNET', 'error');
-    startBtn.disabled = false;
-    cleanupStream();
-    return;
-  }
+  // ── PeerJS — broadcaster peer ID = "CCTV-" + roomcode ──
+  const peerId = 'CCTV-ROOM-' + room;
 
-  const serverURL = SERVERS[index];
-  setStatus(`CONNECTING TO SERVER ${index+1}/${SERVERS.length}…`);
+  // Destroy old peer if exists
+  if (peer) { try{peer.destroy();}catch(e){} }
 
-  if (connection) { try { connection.closeEntireSession(); } catch(e){} }
-
-  connection = new RTCMultiConnection();
-  connection.socketURL = serverURL;
-  connection.session = { audio: true, video: true, oneway: true };
-  connection.sdpConstraints.mandatory = { OfferToReceiveAudio: false, OfferToReceiveVideo: false };
-  connection.attachStreams = [currentStream];
-
-  // timeout — if no response in 8 seconds, try next server
-  const timeout = setTimeout(() => {
-    console.warn('Server timeout:', serverURL);
-    tryServer(room, index + 1);
-  }, 8000);
-
-  connection.open(room, function(isRoomOpened, roomid, error) {
-    clearTimeout(timeout);
-    if (isRoomOpened) {
-      onBroadcastStarted(room, serverURL);
-    } else {
-      console.warn('Server failed:', serverURL, error);
-      tryServer(room, index + 1);
-    }
+  peer = new Peer(peerId, {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+    path: '/',
+    debug: 0
   });
 
-  connection.onerror = function() {
-    clearTimeout(timeout);
-    tryServer(room, index + 1);
-  };
-}
+  peer.on('open', id => {
+    status('BROADCASTING — ROOM: ' + room, 'live');
+    recBadge.classList.remove('hidden');
+    stopBtn.disabled = false;
+    roomInput.disabled = true;
 
-function onBroadcastStarted(room, server) {
-  setStatus('BROADCASTING — ROOM: ' + room, 'live');
-  recBadge.classList.remove('hidden');
-  stopBtn.disabled = false;
-  roomInput.disabled = true;
+    const vUrl = 'https://prince-raj-20.github.io/camera_monitor/viewer.html?room=' + encodeURIComponent(room);
+    shareLink.textContent = vUrl;
+    shareRow.style.display = 'flex';
+  });
 
-  const vUrl = 'https://prince-raj-20.github.io/camera_monitor/viewer.html?room=' + encodeURIComponent(room) + '&server=' + encodeURIComponent(server);
-  shareLink.textContent = vUrl;
-  shareRow.style.display = 'flex';
+  // When a viewer calls in, answer with our stream
+  peer.on('call', call => {
+    call.answer(currentStream);
+    calls.push(call);
+    call.on('close', () => { calls = calls.filter(c=>c!==call); });
+  });
 
-  connection.onUserStatusChanged = function() {
-    const count = Object.keys(connection.peers).length;
-    viewerEl.textContent = count > 0 ? `👁 ${count} VIEWER${count>1?'S':''}` : '';
-  };
-}
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') {
+      status('⚠ ROOM CODE TAKEN — CHOOSE ANOTHER','error');
+    } else {
+      status('⚠ SERVER ERROR: ' + e.type,'error');
+    }
+    startBtn.disabled = false;
+    cleanupStream();
+  });
 
-stopBtn.addEventListener('click', stop);
+  peer.on('disconnected', () => {
+    status('⚠ DISCONNECTED FROM SERVER','error');
+  });
+};
 
+// ── Stop ──
+stopBtn.onclick = stop;
 function stop() {
-  if (connection) { try { connection.closeEntireSession(); } catch(e){} connection = null; }
+  calls.forEach(c => { try{c.close();}catch(e){} });
+  calls = [];
+  if (peer) { try{peer.destroy();}catch(e){} peer=null; }
   cleanupStream();
   recBadge.classList.add('hidden');
-  stopBtn.disabled = true;
-  startBtn.disabled = false;
-  roomInput.disabled = false;
-  shareRow.style.display = 'none';
-  viewerEl.textContent = '';
-  resTag.textContent = '';
-  setStatus('STANDBY — ENTER ROOM CODE');
+  stopBtn.disabled=true; startBtn.disabled=false;
+  roomInput.disabled=false;
+  shareRow.style.display='none';
+  res.textContent='';
+  status('STANDBY — ENTER ROOM CODE');
 }
 
 function cleanupStream() {
-  if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); currentStream = null; }
-  localVideo.srcObject = null;
-  placeholder.style.display = 'flex';
-  placeholderText.textContent = 'CAMERA STANDBY';
+  if (currentStream) { currentStream.getTracks().forEach(t=>t.stop()); currentStream=null; }
+  localVid.srcObject=null;
+  ph.style.display='flex';
+  phTxt.textContent='CAMERA STANDBY';
 }
 </script>
 </body>
