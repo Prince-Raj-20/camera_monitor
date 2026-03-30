@@ -110,129 +110,192 @@
 <script>
 // Auto-fill room from URL
 const params = new URLSearchParams(window.location.search);
-if (params.get('room')) document.getElementById('roomId').value = params.get('room').toUpperCase();
+if (params.get('room')) {
+  document.getElementById('roomId').value = params.get('room').toUpperCase();
+}
 
 // Clock
 const tsEl = document.getElementById('ts');
-setInterval(()=>{ const n=new Date(); tsEl.textContent=n.toLocaleDateString('en-GB')+'  '+n.toTimeString().slice(0,8); },1000);
+setInterval(() => {
+  const n = new Date();
+  tsEl.textContent =
+    n.toLocaleDateString('en-GB') + '  ' + n.toTimeString().slice(0, 8);
+}, 1000);
 
 const $ = id => document.getElementById(id);
-const roomInput=$('roomId'), connectBtn=$('connectBtn'), disconnectBtn=$('disconnectBtn');
-const dot=$('dot'), stTxt=$('stTxt');
-const remoteVid=$('remoteVid'), ph=$('ph'), phTxt=$('phTxt'), ring=$('ring');
-const liveBadge=$('liveBadge'), ch=$('ch'), resv=$('resv');
-const vol=$('vol'), muteBtn=$('muteBtn'), fsBtn=$('fsBtn');
+const roomInput = $('roomId'), connectBtn = $('connectBtn'), disconnectBtn = $('disconnectBtn');
+const dot = $('dot'), stTxt = $('stTxt');
+const remoteVid = $('remoteVid'), ph = $('ph'), phTxt = $('phTxt'), ring = $('ring');
+const liveBadge = $('liveBadge'), ch = $('ch'), resv = $('resv');
+const vol = $('vol'), muteBtn = $('muteBtn'), fsBtn = $('fsBtn');
 
-let peer, currentCall, muted=false;
+let peer, currentCall, muted = false;
 
-function status(msg,type='') {
-  stTxt.textContent=msg; stTxt.className=type;
-  dot.className='dot'+(type?' '+type:'');
+function status(msg, type = '') {
+  stTxt.textContent = msg;
+  stTxt.className = type;
+  dot.className = 'dot' + (type ? ' ' + type : '');
 }
 
-vol.oninput = () => { if(remoteVid) remoteVid.volume=vol.value; };
-muteBtn.onclick = () => { muted=!muted; remoteVid.muted=muted; muteBtn.textContent=muted?'🔇':'🔊'; };
-fsBtn.onclick = () => {
-  const w=$('videoWrap');
-  if(!document.fullscreenElement) w.requestFullscreen&&w.requestFullscreen();
-  else document.exitFullscreen&&document.exitFullscreen();
+// Volume
+vol.oninput = () => {
+  if (remoteVid) remoteVid.volume = vol.value;
 };
 
+// Mute
+muteBtn.onclick = () => {
+  muted = !muted;
+  remoteVid.muted = muted;
+  muteBtn.textContent = muted ? '🔇' : '🔊';
+};
+
+// Fullscreen
+fsBtn.onclick = () => {
+  const w = $('videoWrap');
+  if (!document.fullscreenElement) w.requestFullscreen?.();
+  else document.exitFullscreen?.();
+};
+
+// ── ICE SERVERS (IMPORTANT) ──
+const iceConfig = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:global.stun.twilio.com:3478" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    }
+  ]
+};
+
+// Connect
 connectBtn.onclick = () => {
   const room = roomInput.value.trim().toUpperCase();
-  if (!room) { status('⚠ ENTER A ROOM CODE','error'); return; }
+  if (!room) {
+    status('⚠ ENTER ROOM CODE', 'error');
+    return;
+  }
 
-  connectBtn.disabled=true;
-  ring.style.display='block';
-  phTxt.textContent='CONNECTING…';
+  connectBtn.disabled = true;
+  ring.style.display = 'block';
+  phTxt.textContent = 'CONNECTING…';
   status('CONNECTING TO SERVER…');
 
-  if(peer) { try{peer.destroy();}catch(e){} }
+  if (peer) {
+    try { peer.destroy(); } catch (e) {}
+  }
 
-  // Viewer gets a random peer ID
   peer = new Peer(undefined, {
-    host: '0.peerjs.com',
-    port: 443,
-    secure: true,
-    path: '/',
-    debug: 0
+    debug: 2,
+    config: iceConfig
   });
 
-  peer.on('open', myId => {
+  peer.on('open', () => {
     status('CALLING BROADCASTER…');
-    phTxt.textContent='CALLING ROOM: '+room;
+    phTxt.textContent = 'CALLING ROOM: ' + room;
 
-    // Call the broadcaster's peer ID
-    const broadcasterPeerId = 'CCTV-ROOM-' + room;
-    currentCall = peer.call(broadcasterPeerId, null); // null = no local stream, just receive
+    const broadcasterId = 'CCTV-ROOM-' + room;
+
+    currentCall = peer.call(broadcasterId, null);
 
     if (!currentCall) {
-      status('⚠ COULD NOT REACH BROADCASTER — IS IT LIVE?','error');
-      ring.style.display='none';
-      phTxt.textContent='NO BROADCASTER FOUND';
-      connectBtn.disabled=false;
+      status('⚠ NO BROADCASTER FOUND', 'error');
+      resetUI();
       return;
     }
 
+    // Receive stream
     currentCall.on('stream', remoteStream => {
       remoteVid.srcObject = remoteStream;
       remoteVid.volume = vol.value;
-      ph.style.display='none';
+
+      ph.style.display = 'none';
       liveBadge.classList.add('show');
-      ch.textContent='CH-01  ROOM:'+room;
+      ch.textContent = 'CH-01  ROOM:' + room;
+
       remoteVid.onloadedmetadata = () => {
-        resv.textContent=`${remoteVid.videoWidth}×${remoteVid.videoHeight}`;
+        resv.textContent =
+          `${remoteVid.videoWidth}×${remoteVid.videoHeight}`;
       };
-      status('RECEIVING STREAM — ROOM: '+room,'live');
-      disconnectBtn.disabled=false;
-      roomInput.disabled=true;
-      ring.style.display='none';
+
+      status('LIVE — ROOM: ' + room, 'live');
+      disconnectBtn.disabled = false;
+      roomInput.disabled = true;
+      ring.style.display = 'none';
     });
 
     currentCall.on('close', () => {
-      status('⚠ STREAM ENDED BY BROADCASTER','error');
+      status('⚠ STREAM ENDED', 'error');
       disconnectCleanup();
     });
 
     currentCall.on('error', e => {
-      status('⚠ CALL ERROR: '+e,'error');
+      status('⚠ CALL ERROR', 'error');
       disconnectCleanup();
     });
 
-    // Timeout: if no stream in 12s
+    // FIXED TIMEOUT LOGIC
     setTimeout(() => {
-      if (ph.style.display !== 'none') return;
-      if (!remoteVid.srcObject) {
-        status('⚠ NO BROADCASTER FOUND IN ROOM: '+room+' — START BROADCASTER FIRST','error');
-        ring.style.display='none';
-        phTxt.textContent='NO STREAM FOUND';
-        connectBtn.disabled=false;
-        if(currentCall) currentCall.close();
-      }
-    }, 12000);
+      if (remoteVid.srcObject) return;
+
+      status('⚠ NO STREAM — START BROADCAST FIRST', 'error');
+      phTxt.textContent = 'NO STREAM FOUND';
+      ring.style.display = 'none';
+      connectBtn.disabled = false;
+
+      if (currentCall) currentCall.close();
+    }, 10000);
   });
 
   peer.on('error', e => {
-    status('⚠ SERVER ERROR: '+e.type,'error');
-    ring.style.display='none';
-    phTxt.textContent='CONNECTION FAILED';
-    connectBtn.disabled=false;
+    status('⚠ SERVER ERROR: ' + e.type, 'error');
+    resetUI();
   });
 };
 
-disconnectBtn.onclick = () => { disconnectCleanup(); status('DISCONNECTED'); };
+// Disconnect
+disconnectBtn.onclick = () => {
+  disconnectCleanup();
+  status('DISCONNECTED');
+};
 
 function disconnectCleanup() {
-  if(currentCall) { try{currentCall.close();}catch(e){} currentCall=null; }
-  if(peer) { try{peer.destroy();}catch(e){} peer=null; }
-  remoteVid.srcObject=null;
-  ph.style.display='flex'; ring.style.display='none';
-  phTxt.textContent='ENTER ROOM CODE TO MONITOR';
+  if (currentCall) {
+    try { currentCall.close(); } catch (e) {}
+    currentCall = null;
+  }
+
+  if (peer) {
+    try { peer.destroy(); } catch (e) {}
+    peer = null;
+  }
+
+  remoteVid.srcObject = null;
+  ph.style.display = 'flex';
+  ring.style.display = 'none';
+  phTxt.textContent = 'ENTER ROOM CODE TO MONITOR';
+
   liveBadge.classList.remove('show');
-  ch.textContent=''; resv.textContent='';
-  disconnectBtn.disabled=true; connectBtn.disabled=false;
-  roomInput.disabled=false;
+  ch.textContent = '';
+  resv.textContent = '';
+
+  disconnectBtn.disabled = true;
+  connectBtn.disabled = false;
+  roomInput.disabled = false;
+}
+
+// Reset UI on failure
+function resetUI() {
+  ring.style.display = 'none';
+  connectBtn.disabled = false;
 }
 </script>
+  
 </body>
 </html>
