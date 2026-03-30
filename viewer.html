@@ -114,139 +114,104 @@ if (params.get('room')) {
   document.getElementById('roomId').value = params.get('room').toUpperCase();
 }
 
-// Clock
-const tsEl = document.getElementById('ts');
-setInterval(() => {
-  const n = new Date();
-  tsEl.textContent =
-    n.toLocaleDateString('en-GB') + '  ' + n.toTimeString().slice(0, 8);
-}, 1000);
-
 const $ = id => document.getElementById(id);
 const roomInput = $('roomId'), connectBtn = $('connectBtn'), disconnectBtn = $('disconnectBtn');
 const dot = $('dot'), stTxt = $('stTxt');
-const remoteVid = $('remoteVid'), ph = $('ph'), phTxt = $('phTxt'), ring = $('ring');
-const liveBadge = $('liveBadge'), ch = $('ch'), resv = $('resv');
-const vol = $('vol'), muteBtn = $('muteBtn'), fsBtn = $('fsBtn');
+const ph = $('ph'), phTxt = $('phTxt');
+const remoteAudio = $('remoteAudio');
 
-let peer, currentCall, muted = false;
+let peer, currentCall;
 
-function status(msg, type = '') {
+// Status UI
+function status(msg, type='') {
   stTxt.textContent = msg;
   stTxt.className = type;
   dot.className = 'dot' + (type ? ' ' + type : '');
 }
 
-// Volume
-vol.oninput = () => {
-  if (remoteVid) remoteVid.volume = vol.value;
+// 🔥 SAME SERVER CONFIG (IMPORTANT)
+const PEER_CONFIG = {
+  host: "peerjs-server.herokuapp.com",
+  secure: true,
+  port: 443,
+  config: {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:global.stun.twilio.com:3478" },
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      }
+    ]
+  },
+  debug: 2
 };
 
-// Mute
-muteBtn.onclick = () => {
-  muted = !muted;
-  remoteVid.muted = muted;
-  muteBtn.textContent = muted ? '🔇' : '🔊';
-};
-
-// Fullscreen
-fsBtn.onclick = () => {
-  const w = $('videoWrap');
-  if (!document.fullscreenElement) w.requestFullscreen?.();
-  else document.exitFullscreen?.();
-};
-
-// ── ICE SERVERS (IMPORTANT) ──
-const iceConfig = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:global.stun.twilio.com:3478" },
-    {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    }
-  ]
-};
-
-// Connect
+// ▶ CONNECT (LISTEN)
 connectBtn.onclick = () => {
   const room = roomInput.value.trim().toUpperCase();
   if (!room) {
-    status('⚠ ENTER ROOM CODE', 'error');
+    status('⚠ ENTER ROOM CODE','error');
     return;
   }
 
   connectBtn.disabled = true;
-  ring.style.display = 'block';
-  phTxt.textContent = 'CONNECTING…';
-  status('CONNECTING TO SERVER…');
+  phTxt.textContent = 'CONNECTING...';
+  status('CONNECTING...');
 
   if (peer) {
-    try { peer.destroy(); } catch (e) {}
+    try { peer.destroy(); } catch(e) {}
   }
 
-  peer = new Peer(undefined, {
-    debug: 2,
-    config: iceConfig
-  });
+  peer = new Peer(undefined, PEER_CONFIG);
 
   peer.on('open', () => {
-    status('CALLING BROADCASTER…');
-    phTxt.textContent = 'CALLING ROOM: ' + room;
+    status('CALLING AUDIO SOURCE...');
 
-    const broadcasterId = 'CCTV-ROOM-' + room;
+    const broadcasterId = 'AUDIO-ROOM-' + room;
 
     currentCall = peer.call(broadcasterId, null);
 
     if (!currentCall) {
-      status('⚠ NO BROADCASTER FOUND', 'error');
+      status('⚠ NO AUDIO SOURCE FOUND','error');
       resetUI();
       return;
     }
 
-    // Receive stream
+    // Receive audio
     currentCall.on('stream', remoteStream => {
-      remoteVid.srcObject = remoteStream;
-      remoteVid.volume = vol.value;
+      remoteAudio.srcObject = remoteStream;
 
       ph.style.display = 'none';
-      liveBadge.classList.add('show');
-      ch.textContent = 'CH-01  ROOM:' + room;
 
-      remoteVid.onloadedmetadata = () => {
-        resv.textContent =
-          `${remoteVid.videoWidth}×${remoteVid.videoHeight}`;
-      };
-
-      status('LIVE — ROOM: ' + room, 'live');
+      status('🔊 LISTENING — ROOM: ' + room, 'live');
       disconnectBtn.disabled = false;
       roomInput.disabled = true;
-      ring.style.display = 'none';
     });
 
     currentCall.on('close', () => {
-      status('⚠ STREAM ENDED', 'error');
-      disconnectCleanup();
+      status('⚠ AUDIO ENDED','error');
+      cleanup();
     });
 
-    currentCall.on('error', e => {
-      status('⚠ CALL ERROR', 'error');
-      disconnectCleanup();
+    currentCall.on('error', () => {
+      status('⚠ CONNECTION ERROR','error');
+      cleanup();
     });
 
-    // FIXED TIMEOUT LOGIC
+    // Timeout
     setTimeout(() => {
-      if (remoteVid.srcObject) return;
+      if (remoteAudio.srcObject) return;
 
-      status('⚠ NO STREAM — START BROADCAST FIRST', 'error');
-      phTxt.textContent = 'NO STREAM FOUND';
-      ring.style.display = 'none';
+      status('⚠ NO AUDIO FOUND','error');
+      phTxt.textContent = 'NO AUDIO STREAM';
       connectBtn.disabled = false;
 
       if (currentCall) currentCall.close();
@@ -254,45 +219,40 @@ connectBtn.onclick = () => {
   });
 
   peer.on('error', e => {
-    status('⚠ SERVER ERROR: ' + e.type, 'error');
+    status('⚠ SERVER ERROR: ' + e.type,'error');
     resetUI();
   });
 };
 
-// Disconnect
+// ⏹ DISCONNECT
 disconnectBtn.onclick = () => {
-  disconnectCleanup();
+  cleanup();
   status('DISCONNECTED');
 };
 
-function disconnectCleanup() {
+// Cleanup
+function cleanup() {
   if (currentCall) {
-    try { currentCall.close(); } catch (e) {}
+    try { currentCall.close(); } catch(e) {}
     currentCall = null;
   }
 
   if (peer) {
-    try { peer.destroy(); } catch (e) {}
+    try { peer.destroy(); } catch(e) {}
     peer = null;
   }
 
-  remoteVid.srcObject = null;
+  remoteAudio.srcObject = null;
   ph.style.display = 'flex';
-  ring.style.display = 'none';
-  phTxt.textContent = 'ENTER ROOM CODE TO MONITOR';
-
-  liveBadge.classList.remove('show');
-  ch.textContent = '';
-  resv.textContent = '';
+  phTxt.textContent = 'ENTER ROOM CODE';
 
   disconnectBtn.disabled = true;
   connectBtn.disabled = false;
   roomInput.disabled = false;
 }
 
-// Reset UI on failure
+// Reset UI
 function resetUI() {
-  ring.style.display = 'none';
   connectBtn.disabled = false;
 }
 </script>
