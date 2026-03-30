@@ -4,240 +4,234 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <title>CCTV Monitor</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/rtcmulticonnection@3.6.9/dist/RTCMultiConnection.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
   :root {
-    --amber: #ffb300; --green: #00ff88; --red: #ff2020; --blue: #00cfff;
-    --bg: #07090d; --panel: #0b0e14; --border: #1a2030;
-    --text: #c8e8ff; --dim: #3a5570;
-    --mono: 'Share Tech Mono', monospace; --display: 'Orbitron', sans-serif;
+    --amber:#ffb300; --green:#00ff88; --red:#ff2020; --blue:#00cfff;
+    --bg:#07090d; --panel:#0b0e14; --border:#1a2030; --dim:#3a5570;
+    --mono:'Share Tech Mono',monospace; --display:'Orbitron',sans-serif;
   }
-  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); overflow: hidden; }
-  body::before { content: ''; position: fixed; inset: 0; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,207,255,0.012) 2px, rgba(0,207,255,0.012) 4px); pointer-events: none; z-index: 9999; }
-  body::after { content: ''; position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.75) 100%); pointer-events: none; z-index: 9998; }
-  .header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); position: relative; z-index: 10; }
-  .logo { font-family: var(--display); font-size: 13px; font-weight: 900; letter-spacing: 4px; color: var(--blue); }
-  .ch-label { font-size: 10px; letter-spacing: 3px; color: var(--dim); font-family: var(--display); }
-  .video-wrap { position: relative; width: 100%; height: calc(100vh - 56px - 150px); background: #000; overflow: hidden; }
-  video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .corner { position: absolute; width: 28px; height: 28px; border-color: var(--blue); border-style: solid; opacity: 0.7; }
-  .corner.tl { top:10px;left:10px; border-width:2px 0 0 2px; }
-  .corner.tr { top:10px;right:10px; border-width:2px 2px 0 0; }
-  .corner.bl { bottom:10px;left:10px; border-width:0 0 2px 2px; }
-  .corner.br { bottom:10px;right:10px; border-width:0 2px 2px 0; }
-  .scanline { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(0,207,255,0.4), transparent); animation: scan 3s linear infinite; pointer-events: none; }
+  html,body { height:100%; background:var(--bg); color:#c8e8ff; font-family:var(--mono); overflow:hidden; }
+  body::before { content:''; position:fixed; inset:0; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,207,255,0.012) 2px,rgba(0,207,255,0.012) 4px); pointer-events:none; z-index:9999; }
+  body::after  { content:''; position:fixed; inset:0; background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,0.75) 100%); pointer-events:none; z-index:9998; }
+
+  .header { display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-bottom:1px solid var(--border); background:var(--panel); z-index:10; position:relative; }
+  .logo { font-family:var(--display); font-size:13px; font-weight:900; letter-spacing:4px; color:var(--blue); }
+  .ch-label { font-size:10px; letter-spacing:3px; color:var(--dim); font-family:var(--display); }
+
+  .video-wrap { position:relative; width:100%; height:calc(100vh - 56px - 155px); background:#000; overflow:hidden; }
+  video { width:100%; height:100%; object-fit:cover; display:block; }
+  .corner { position:absolute; width:28px; height:28px; border-color:var(--blue); border-style:solid; opacity:0.7; }
+  .corner.tl{top:10px;left:10px;border-width:2px 0 0 2px}
+  .corner.tr{top:10px;right:10px;border-width:2px 2px 0 0}
+  .corner.bl{bottom:10px;left:10px;border-width:0 0 2px 2px}
+  .corner.br{bottom:10px;right:10px;border-width:0 2px 2px 0}
+  .scanline { position:absolute; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,rgba(0,207,255,0.4),transparent); animation:scan 3s linear infinite; pointer-events:none; }
   @keyframes scan { 0%{top:-2px} 100%{top:100%} }
-  .ts-overlay { position: absolute; bottom:12px; left:12px; font-size: 11px; color: var(--blue); opacity: 0.8; letter-spacing: 1px; }
-  .ch-overlay { position: absolute; top:12px; left:12px; font-size: 10px; color: var(--amber); letter-spacing: 2px; opacity: 0.7; }
-  .res-overlay { position: absolute; top:12px; right:12px; font-size: 10px; color: var(--amber); letter-spacing: 2px; opacity: 0.7; }
-  .live-badge { position: absolute; top:12px; left:50%; transform:translateX(-50%); display: flex; align-items: center; gap: 6px; background: rgba(255,32,32,0.15); border: 1px solid var(--red); border-radius: 3px; padding: 4px 10px; font-family: var(--display); font-size: 10px; color: var(--red); letter-spacing: 3px; opacity: 0; transition: opacity .4s; }
-  .live-badge.show { opacity: 1; }
-  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px var(--red); animation: blink 1s infinite; }
+  .ts  { position:absolute; bottom:12px; left:12px; font-size:11px; color:var(--blue); opacity:.8; letter-spacing:1px; }
+  .ch  { position:absolute; top:12px; left:12px; font-size:10px; color:var(--amber); letter-spacing:2px; opacity:.7; }
+  .resv{ position:absolute; top:12px; right:12px; font-size:10px; color:var(--amber); letter-spacing:2px; opacity:.7; }
+  .live-badge { position:absolute; top:12px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:6px; background:rgba(255,32,32,0.15); border:1px solid var(--red); border-radius:3px; padding:4px 10px; font-family:var(--display); font-size:10px; color:var(--red); letter-spacing:3px; opacity:0; transition:opacity .4s; }
+  .live-badge.show { opacity:1; }
+  .live-dot { width:7px; height:7px; border-radius:50%; background:var(--red); box-shadow:0 0 8px var(--red); animation:blink 1s infinite; }
   @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
-  .placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #04060a; }
-  .monitor-icon { font-size: 64px; opacity: 0.12; }
-  .loading-ring { width: 48px; height: 48px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 1s linear infinite; display: none; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .placeholder-text { font-family: var(--display); font-size: 11px; letter-spacing: 3px; color: var(--dim); text-align: center; padding: 0 20px; }
-  .bottom { padding: 12px 16px; background: var(--panel); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
-  .room-row { display: flex; gap: 8px; align-items: center; }
-  .room-input { flex: 1; background: #080b12; border: 1px solid var(--border); border-radius: 4px; padding: 9px 12px; font-family: var(--mono); font-size: 13px; color: var(--blue); outline: none; letter-spacing: 2px; text-transform: uppercase; transition: border-color .2s; }
-  .room-input:focus { border-color: var(--blue); }
-  .room-input::placeholder { color: var(--dim); letter-spacing: 1px; }
-  .btn { padding: 9px 18px; border: none; border-radius: 4px; font-family: var(--display); font-size: 11px; font-weight: 700; letter-spacing: 2px; cursor: pointer; transition: all .2s; white-space: nowrap; }
-  .btn-connect { background: var(--blue); color: #020508; }
-  .btn-connect:hover { box-shadow: 0 0 16px var(--blue); transform: scale(1.02); }
-  .btn-disconnect { background: #222d3a; color: var(--red); border: 1px solid var(--red); }
-  .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
-  .status-bar { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--dim); letter-spacing: 1px; }
-  .status-left { display: flex; align-items: center; gap: 8px; }
-  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); transition: all .3s; }
-  .status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
-  .status-dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .placeholder { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:#04060a; }
+  .mon-icon { font-size:60px; opacity:.12; }
+  .ring { width:44px; height:44px; border:2px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:spin 1s linear infinite; display:none; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .ph-text { font-family:var(--display); font-size:11px; letter-spacing:3px; color:var(--dim); text-align:center; padding:0 16px; line-height:1.8; }
+  .fs-btn { position:absolute; bottom:12px; right:12px; background:rgba(0,0,0,.5); border:1px solid var(--border); border-radius:4px; color:var(--blue); font-size:16px; padding:4px 8px; cursor:pointer; z-index:5; }
+
+  .bottom { padding:12px 16px; background:var(--panel); border-top:1px solid var(--border); display:flex; flex-direction:column; gap:10px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .room-input { flex:1; background:#080b12; border:1px solid var(--border); border-radius:4px; padding:9px 12px; font-family:var(--mono); font-size:13px; color:var(--blue); outline:none; letter-spacing:2px; text-transform:uppercase; }
+  .room-input:focus { border-color:var(--blue); }
+  .room-input::placeholder { color:var(--dim); }
+  .btn { padding:9px 16px; border:none; border-radius:4px; font-family:var(--display); font-size:11px; font-weight:700; letter-spacing:2px; cursor:pointer; transition:all .2s; white-space:nowrap; }
+  .btn-connect    { background:var(--blue); color:#020508; }
+  .btn-connect:hover { box-shadow:0 0 16px var(--blue); }
+  .btn-disconnect { background:#222d3a; color:var(--red); border:1px solid var(--red); }
+  .btn:disabled { opacity:.35; cursor:not-allowed; }
+  .vol-row { display:flex; align-items:center; gap:10px; font-size:10px; color:var(--dim); letter-spacing:1px; }
+  input[type=range] { flex:1; accent-color:var(--blue); }
+  .mute-btn { background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--blue); font-size:16px; padding:2px 8px; cursor:pointer; }
+  .status-bar { display:flex; align-items:center; gap:8px; font-size:10px; color:var(--dim); letter-spacing:1px; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--dim); flex-shrink:0; transition:all .3s; }
+  .dot.live  { background:var(--green); box-shadow:0 0 8px var(--green); animation:pulse 2s infinite; }
+  .dot.error { background:var(--red); box-shadow:0 0 8px var(--red); }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-  #statusText.live { color: var(--green); }
-  #statusText.error { color: var(--red); }
-  .vol-row { display: flex; align-items: center; gap: 10px; font-size: 10px; color: var(--dim); letter-spacing: 1px; }
-  input[type=range] { flex: 1; accent-color: var(--blue); }
-  .mute-btn { background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--blue); font-family: var(--mono); font-size: 16px; padding: 2px 8px; cursor: pointer; }
-  .fs-btn { position: absolute; bottom:12px; right:12px; background: rgba(0,0,0,0.5); border: 1px solid var(--border); border-radius: 4px; color: var(--blue); font-size: 16px; padding: 4px 8px; cursor: pointer; z-index: 5; }
+  #stTxt.live  { color:var(--green); }
+  #stTxt.error { color:var(--red); }
 </style>
 </head>
 <body>
+
 <div class="header">
   <div class="logo">🖥 CCTV-MON</div>
   <div class="ch-label">MONITOR MODE</div>
 </div>
 
 <div class="video-wrap" id="videoWrap">
-  <div class="placeholder" id="placeholder">
-    <div class="monitor-icon">📺</div>
-    <div class="loading-ring" id="loadingRing"></div>
-    <div class="placeholder-text" id="placeholderText">ENTER ROOM CODE TO MONITOR</div>
+  <div class="placeholder" id="ph">
+    <div class="mon-icon">📺</div>
+    <div class="ring" id="ring"></div>
+    <div class="ph-text" id="phTxt">ENTER ROOM CODE TO MONITOR</div>
   </div>
-  <video id="remoteVideo" autoplay playsinline></video>
+  <video id="remoteVid" autoplay playsinline></video>
   <div class="corner tl"></div><div class="corner tr"></div>
   <div class="corner bl"></div><div class="corner br"></div>
   <div class="scanline"></div>
-  <div class="ts-overlay" id="tsOverlay"></div>
-  <div class="ch-overlay" id="chOverlay"></div>
-  <div class="res-overlay" id="resOverlay"></div>
+  <div class="ts"  id="ts"></div>
+  <div class="ch"  id="ch"></div>
+  <div class="resv" id="resv"></div>
   <div class="live-badge" id="liveBadge"><div class="live-dot"></div>LIVE</div>
   <button class="fs-btn" id="fsBtn">⛶</button>
 </div>
 
 <div class="bottom">
-  <div class="room-row">
-    <input class="room-input" id="roomId" placeholder="ENTER ROOM CODE" maxlength="20" />
-    <button class="btn btn-connect" id="connectBtn">▶ CONNECT</button>
+  <div class="row">
+    <input class="room-input" id="roomId" placeholder="ENTER ROOM CODE" maxlength="20"/>
+    <button class="btn btn-connect"    id="connectBtn">▶ CONNECT</button>
     <button class="btn btn-disconnect" id="disconnectBtn" disabled>■ LEAVE</button>
   </div>
-
   <div class="vol-row">
     <button class="mute-btn" id="muteBtn">🔊</button>
     <span>VOL</span>
-    <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1" />
+    <input type="range" id="vol" min="0" max="1" step="0.05" value="1"/>
   </div>
-
   <div class="status-bar">
-    <div class="status-left">
-      <div class="status-dot" id="statusDot"></div>
-      <span id="statusText">STANDBY — WAITING FOR ROOM CODE</span>
-    </div>
+    <div class="dot" id="dot"></div>
+    <span id="stTxt">STANDBY — ENTER ROOM CODE</span>
   </div>
 </div>
 
 <script>
-// Auto-fill room and server from URL params
+// Auto-fill room from URL
 const params = new URLSearchParams(window.location.search);
 if (params.get('room')) document.getElementById('roomId').value = params.get('room').toUpperCase();
-const autoServer = params.get('server') || null;
 
 // Clock
-const tsEl = document.getElementById('tsOverlay');
-function tick() { const n=new Date(); tsEl.textContent=n.toLocaleDateString('en-GB')+'  '+n.toTimeString().slice(0,8); }
-tick(); setInterval(tick,1000);
+const tsEl = document.getElementById('ts');
+setInterval(()=>{ const n=new Date(); tsEl.textContent=n.toLocaleDateString('en-GB')+'  '+n.toTimeString().slice(0,8); },1000);
 
-const roomInput      = document.getElementById('roomId');
-const connectBtn     = document.getElementById('connectBtn');
-const disconnectBtn  = document.getElementById('disconnectBtn');
-const statusDot      = document.getElementById('statusDot');
-const statusText     = document.getElementById('statusText');
-const remoteVideo    = document.getElementById('remoteVideo');
-const placeholder    = document.getElementById('placeholder');
-const placeholderTxt = document.getElementById('placeholderText');
-const loadingRing    = document.getElementById('loadingRing');
-const liveBadge      = document.getElementById('liveBadge');
-const chOverlay      = document.getElementById('chOverlay');
-const resOverlay     = document.getElementById('resOverlay');
-const volSlider      = document.getElementById('volSlider');
-const muteBtn        = document.getElementById('muteBtn');
-const fsBtn          = document.getElementById('fsBtn');
+const $ = id => document.getElementById(id);
+const roomInput=$('roomId'), connectBtn=$('connectBtn'), disconnectBtn=$('disconnectBtn');
+const dot=$('dot'), stTxt=$('stTxt');
+const remoteVid=$('remoteVid'), ph=$('ph'), phTxt=$('phTxt'), ring=$('ring');
+const liveBadge=$('liveBadge'), ch=$('ch'), resv=$('resv');
+const vol=$('vol'), muteBtn=$('muteBtn'), fsBtn=$('fsBtn');
 
-let connection, muted = false;
+let peer, currentCall, muted=false;
 
-const SERVERS = [
-  'https://muazkhan.com:9001/',
-  'https://rtcmulticonnection.herokuapp.com:443/',
-  'https://webrtcweb.com:9001/'
-];
-
-function setStatus(msg, type='') {
-  statusText.textContent = msg;
-  statusText.className = type;
-  statusDot.className = 'status-dot' + (type ? ' ' + type : '');
+function status(msg,type='') {
+  stTxt.textContent=msg; stTxt.className=type;
+  dot.className='dot'+(type?' '+type:'');
 }
 
-volSlider.addEventListener('input', () => { if (remoteVideo) remoteVideo.volume = volSlider.value; });
-muteBtn.addEventListener('click', () => { muted = !muted; if (remoteVideo) remoteVideo.muted = muted; muteBtn.textContent = muted ? '🔇' : '🔊'; });
-fsBtn.addEventListener('click', () => {
-  const wrap = document.getElementById('videoWrap');
-  if (!document.fullscreenElement) wrap.requestFullscreen && wrap.requestFullscreen();
-  else document.exitFullscreen && document.exitFullscreen();
-});
+vol.oninput = () => { if(remoteVid) remoteVid.volume=vol.value; };
+muteBtn.onclick = () => { muted=!muted; remoteVid.muted=muted; muteBtn.textContent=muted?'🔇':'🔊'; };
+fsBtn.onclick = () => {
+  const w=$('videoWrap');
+  if(!document.fullscreenElement) w.requestFullscreen&&w.requestFullscreen();
+  else document.exitFullscreen&&document.exitFullscreen();
+};
 
-connectBtn.addEventListener('click', () => {
+connectBtn.onclick = () => {
   const room = roomInput.value.trim().toUpperCase();
-  if (!room) { setStatus('⚠ ENTER A ROOM CODE', 'error'); return; }
+  if (!room) { status('⚠ ENTER A ROOM CODE','error'); return; }
 
-  connectBtn.disabled = true;
-  loadingRing.style.display = 'block';
+  connectBtn.disabled=true;
+  ring.style.display='block';
+  phTxt.textContent='CONNECTING…';
+  status('CONNECTING TO SERVER…');
 
-  // If viewer URL has server param, try that first
-  const serverList = autoServer ? [autoServer, ...SERVERS.filter(s => s !== autoServer)] : SERVERS;
-  tryConnect(room, serverList, 0);
-});
+  if(peer) { try{peer.destroy();}catch(e){} }
 
-function tryConnect(room, servers, index) {
-  if (index >= servers.length) {
-    setStatus('⚠ NO STREAM FOUND — CHECK ROOM CODE OR START BROADCASTER FIRST', 'error');
-    loadingRing.style.display = 'none';
-    placeholderTxt.textContent = 'NO STREAM FOUND';
-    connectBtn.disabled = false;
-    return;
-  }
+  // Viewer gets a random peer ID
+  peer = new Peer(undefined, {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+    path: '/',
+    debug: 0
+  });
 
-  const serverURL = servers[index];
-  setStatus(`SEARCHING ON SERVER ${index+1}/${servers.length}…`);
-  placeholderTxt.textContent = `TRYING SERVER ${index+1}…`;
+  peer.on('open', myId => {
+    status('CALLING BROADCASTER…');
+    phTxt.textContent='CALLING ROOM: '+room;
 
-  if (connection) { try { connection.closeEntireSession(); } catch(e){} }
+    // Call the broadcaster's peer ID
+    const broadcasterPeerId = 'CCTV-ROOM-' + room;
+    currentCall = peer.call(broadcasterPeerId, null); // null = no local stream, just receive
 
-  connection = new RTCMultiConnection();
-  connection.socketURL = serverURL;
-  connection.session = { audio: true, video: true, oneway: true };
-  connection.sdpConstraints.mandatory = { OfferToReceiveAudio: true, OfferToReceiveVideo: true };
-
-  let streamReceived = false;
-
-  connection.onstream = function(event) {
-    streamReceived = true;
-    remoteVideo.srcObject = event.stream;
-    remoteVideo.volume = volSlider.value;
-    placeholder.style.display = 'none';
-    liveBadge.classList.add('show');
-    chOverlay.textContent = 'CH-01  ROOM:' + room;
-    remoteVideo.onloadedmetadata = () => {
-      resOverlay.textContent = `${remoteVideo.videoWidth}×${remoteVideo.videoHeight}`;
-    };
-    setStatus('RECEIVING STREAM — ROOM: ' + room, 'live');
-    disconnectBtn.disabled = false;
-    roomInput.disabled = true;
-    loadingRing.style.display = 'none';
-  };
-
-  connection.onstreamended = function() {
-    disconnectCleanup();
-    setStatus('⚠ STREAM ENDED BY BROADCASTER', 'error');
-  };
-
-  // Timeout: if no stream after 8s, try next server
-  setTimeout(() => {
-    if (!streamReceived) {
-      tryConnect(room, servers, index + 1);
+    if (!currentCall) {
+      status('⚠ COULD NOT REACH BROADCASTER — IS IT LIVE?','error');
+      ring.style.display='none';
+      phTxt.textContent='NO BROADCASTER FOUND';
+      connectBtn.disabled=false;
+      return;
     }
-  }, 8000);
 
-  connection.join({ sessionid: room, userid: room + '_viewer_' + Date.now(), extra: {}, session: connection.session });
-}
+    currentCall.on('stream', remoteStream => {
+      remoteVid.srcObject = remoteStream;
+      remoteVid.volume = vol.value;
+      ph.style.display='none';
+      liveBadge.classList.add('show');
+      ch.textContent='CH-01  ROOM:'+room;
+      remoteVid.onloadedmetadata = () => {
+        resv.textContent=`${remoteVid.videoWidth}×${remoteVid.videoHeight}`;
+      };
+      status('RECEIVING STREAM — ROOM: '+room,'live');
+      disconnectBtn.disabled=false;
+      roomInput.disabled=true;
+      ring.style.display='none';
+    });
 
-disconnectBtn.addEventListener('click', () => { disconnectCleanup(); setStatus('DISCONNECTED'); });
+    currentCall.on('close', () => {
+      status('⚠ STREAM ENDED BY BROADCASTER','error');
+      disconnectCleanup();
+    });
+
+    currentCall.on('error', e => {
+      status('⚠ CALL ERROR: '+e,'error');
+      disconnectCleanup();
+    });
+
+    // Timeout: if no stream in 12s
+    setTimeout(() => {
+      if (ph.style.display !== 'none') return;
+      if (!remoteVid.srcObject) {
+        status('⚠ NO BROADCASTER FOUND IN ROOM: '+room+' — START BROADCASTER FIRST','error');
+        ring.style.display='none';
+        phTxt.textContent='NO STREAM FOUND';
+        connectBtn.disabled=false;
+        if(currentCall) currentCall.close();
+      }
+    }, 12000);
+  });
+
+  peer.on('error', e => {
+    status('⚠ SERVER ERROR: '+e.type,'error');
+    ring.style.display='none';
+    phTxt.textContent='CONNECTION FAILED';
+    connectBtn.disabled=false;
+  });
+};
+
+disconnectBtn.onclick = () => { disconnectCleanup(); status('DISCONNECTED'); };
 
 function disconnectCleanup() {
-  if (connection) { try { connection.closeEntireSession(); } catch(e){} connection = null; }
-  remoteVideo.srcObject = null;
-  placeholder.style.display = 'flex';
-  loadingRing.style.display = 'none';
-  placeholderTxt.textContent = 'ENTER ROOM CODE TO MONITOR';
+  if(currentCall) { try{currentCall.close();}catch(e){} currentCall=null; }
+  if(peer) { try{peer.destroy();}catch(e){} peer=null; }
+  remoteVid.srcObject=null;
+  ph.style.display='flex'; ring.style.display='none';
+  phTxt.textContent='ENTER ROOM CODE TO MONITOR';
   liveBadge.classList.remove('show');
-  chOverlay.textContent = '';
-  resOverlay.textContent = '';
-  disconnectBtn.disabled = true;
-  connectBtn.disabled = false;
-  roomInput.disabled = false;
+  ch.textContent=''; resv.textContent='';
+  disconnectBtn.disabled=true; connectBtn.disabled=false;
+  roomInput.disabled=false;
 }
 </script>
 </body>
