@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CCTV System</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    background: #060809;
+    font-family: 'Share Tech Mono', monospace;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,136,0.012) 2px, rgba(0,255,136,0.012) 4px);
+    pointer-events: none;
+  }
+
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.8) 100%);
+    pointer-events: none;
+  }
+
+  .container { position: relative; z-index: 1; width: 100%; max-width: 420px; text-align: center; }
+
+  .title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 6px;
+    color: #00ff88;
+    text-shadow: 0 0 30px rgba(0,255,136,0.4);
+    margin-bottom: 6px;
+  }
+
+  .subtitle {
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: #3a7a5a;
+    margin-bottom: 48px;
+  }
+
+  .cards { display: flex; flex-direction: column; gap: 16px; }
+
+  .card {
+    display: block;
+    text-decoration: none;
+    background: #0b1210;
+    border: 1px solid #1a2e1e;
+    border-radius: 8px;
+    padding: 28px 24px;
+    transition: all .25s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute; inset: 0;
+    opacity: 0;
+    transition: opacity .25s;
+  }
+
+  .card.green::before { background: radial-gradient(circle at 50% 0%, rgba(0,255,136,0.08), transparent 70%); }
+  .card.blue::before  { background: radial-gradient(circle at 50% 0%, rgba(0,207,255,0.08), transparent 70%); }
+
+  .card:hover { transform: translateY(-3px); }
+  .card.green:hover { border-color: #00ff88; box-shadow: 0 8px 32px rgba(0,255,136,0.15); }
+  .card.blue:hover  { border-color: #00cfff; box-shadow: 0 8px 32px rgba(0,207,255,0.15); }
+  .card:hover::before { opacity: 1; }
+
+  .card-icon { font-size: 40px; margin-bottom: 14px; display: block; }
+
+  .card-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    margin-bottom: 8px;
+  }
+  .card.green .card-title { color: #00ff88; }
+  .card.blue  .card-title { color: #00cfff; }
+
+  .card-desc { font-size: 11px; color: #4a6a5a; letter-spacing: 1px; line-height: 1.7; }
+
+  .card-arrow {
+    position: absolute;
+    right: 20px; top: 50%; transform: translateY(-50%);
+    font-size: 20px;
+    opacity: 0.3;
+    transition: opacity .2s, right .2s;
+  }
+  .card.green .card-arrow { color: #00ff88; }
+  .card.blue  .card-arrow { color: #00cfff; }
+  .card:hover .card-arrow { opacity: 0.8; right: 16px; }
+
+  .divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 8px 0;
+    font-size: 10px; color: #2a3a30; letter-spacing: 2px;
+  }
+  .divider::before, .divider::after {
+    content: ''; flex: 1; height: 1px; background: #1a2e1e;
+  }
+
+  .footer {
+    margin-top: 40px;
+    font-size: 10px;
+    color: #2a4a3a;
+    letter-spacing: 2px;
+    line-height: 2;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="title">CCTV SYS</div>
+  <div class="subtitle">WEBRTC · P2P · 5G STREAMING</div>
+
+  <div class="cards">
+    <a class="card green" href="broadcaster.html">
+      <span class="card-icon">📡</span>
+      <div class="card-title">BROADCASTER</div>
+      <div class="card-desc">Camera phone<br>Capture &amp; transmit live video</div>
+      <span class="card-arrow">›</span>
+    </a>
+
+    <div class="divider">OR</div>
+
+    <a class="card blue" href="viewer.html">
+      <span class="card-icon">🖥</span>
+      <div class="card-title">MONITOR</div>
+      <div class="card-desc">Monitor phone<br>Receive &amp; view live stream</div>
+      <span class="card-arrow">›</span>
+    </a>
+  </div>
+
+  <div class="footer">
+    ENTER SAME ROOM CODE ON BOTH DEVICES<br>
+    POWERED BY WEBRTC · RTCMULTICONNECTION
+  </div>
+</div>
+</body>
+</html>

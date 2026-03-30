@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>CCTV Broadcaster</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/rtcmulticonnection@3.6.9/dist/RTCMultiConnection.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red: #ff2020;
+    --green: #00ff88;
+    --amber: #ffb300;
+    --bg: #080c0a;
+    --panel: #0d1410;
+    --border: #1a2e1e;
+    --text: #c8ffd8;
+    --dim: #4a7a5a;
+    --mono: 'Share Tech Mono', monospace;
+    --display: 'Orbitron', sans-serif;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    overflow: hidden;
+  }
+
+  /* scan-line overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,255,136,0.015) 2px,
+      rgba(0,255,136,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* vignette */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.7) 100%);
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    position: relative;
+    z-index: 10;
+  }
+
+  .logo {
+    font-family: var(--display);
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: var(--green);
+    text-transform: uppercase;
+  }
+
+  .rec-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--red);
+    font-family: var(--display);
+  }
+
+  .rec-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 10px var(--red);
+    animation: blink 1s infinite;
+  }
+
+  @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+
+  .rec-badge.hidden { opacity: 0; }
+
+  /* ── VIDEO CONTAINER ── */
+  .video-wrap {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 56px - 120px);
+    background: #000;
+    overflow: hidden;
+  }
+
+  video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* corner markers */
+  .corner {
+    position: absolute;
+    width: 24px; height: 24px;
+    border-color: var(--green);
+    border-style: solid;
+    opacity: 0.8;
+  }
+  .corner.tl { top:12px;left:12px; border-width:2px 0 0 2px; }
+  .corner.tr { top:12px;right:12px; border-width:2px 2px 0 0; }
+  .corner.bl { bottom:12px;left:12px; border-width:0 0 2px 2px; }
+  .corner.br { bottom:12px;right:12px; border-width:0 2px 2px 0; }
+
+  /* timestamp overlay */
+  .timestamp {
+    position: absolute;
+    bottom: 14px; left: 14px;
+    font-size: 11px;
+    color: var(--green);
+    opacity: 0.85;
+    letter-spacing: 1px;
+  }
+
+  /* resolution overlay */
+  .res-tag {
+    position: absolute;
+    top: 14px; right: 14px;
+    font-size: 10px;
+    color: var(--amber);
+    letter-spacing: 2px;
+    opacity: 0.75;
+  }
+
+  /* cross-hair */
+  .crosshair {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    opacity: 0.15;
+    pointer-events: none;
+  }
+  .crosshair::before, .crosshair::after {
+    content: '';
+    position: absolute;
+    background: var(--green);
+  }
+  .crosshair::before { width: 1px; height: 40px; top: -20px; left: 0; }
+  .crosshair::after  { width: 40px; height: 1px; left: -20px; top: 0; }
+
+  /* placeholder */
+  .placeholder {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px;
+    background: #050806;
+  }
+
+  .cam-icon {
+    font-size: 64px;
+    opacity: 0.15;
+    filter: grayscale(1);
+  }
+
+  .placeholder-text {
+    font-family: var(--display);
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: var(--dim);
+  }
+
+  /* ── BOTTOM PANEL ── */
+  .bottom {
+    padding: 12px 16px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* room row */
+  .room-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .room-input {
+    flex: 1;
+    background: #0a160d;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 9px 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--green);
+    outline: none;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    transition: border-color .2s;
+  }
+  .room-input:focus { border-color: var(--green); }
+  .room-input::placeholder { color: var(--dim); letter-spacing: 1px; }
+
+  .btn {
+    padding: 9px 18px;
+    border: none;
+    border-radius: 4px;
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+
+  .btn-go {
+    background: var(--green);
+    color: #030804;
+  }
+  .btn-go:hover { box-shadow: 0 0 16px var(--green); transform: scale(1.02); }
+
+  .btn-stop {
+    background: var(--red);
+    color: #fff;
+  }
+  .btn-stop:hover { box-shadow: 0 0 16px var(--red); }
+
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+  /* status bar */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--dim);
+    letter-spacing: 1px;
+  }
+
+  .status-left { display: flex; align-items: center; gap: 8px; }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: background .3s, box-shadow .3s;
+  }
+  .status-dot.live {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  .status-dot.error { background: var(--red); }
+
+  @keyframes pulse {
+    0%,100% { opacity:1 } 50% { opacity:0.5 }
+  }
+
+  #statusText { transition: color .3s; }
+  #statusText.live { color: var(--green); }
+  #statusText.error { color: var(--red); }
+
+  .viewer-count {
+    font-family: var(--display);
+    font-size: 10px;
+    color: var(--amber);
+    letter-spacing: 2px;
+  }
+
+  /* cam flip button */
+  .cam-flip {
+    position: absolute;
+    top: 14px; left: 14px;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid var(--border);
+    color: var(--green);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 5;
+    transition: background .2s;
+  }
+  .cam-flip:hover { background: rgba(0,255,136,0.15); }
+
+  /* share row */
+  .share-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  .share-label { color: var(--dim); letter-spacing: 1px; white-space: nowrap; }
+
+  .share-link {
+    flex: 1;
+    background: #050806;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--amber);
+    letter-spacing: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: text;
+    user-select: all;
+  }
+
+  .btn-copy {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 6px 10px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .btn-copy:hover { border-color: var(--amber); background: rgba(255,179,0,0.08); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">📡 CCTV-CAM</div>
+  <div class="rec-badge hidden" id="recBadge">
+    <div class="rec-dot"></div> LIVE
+  </div>
+</div>
+
+<div class="video-wrap" id="videoWrap">
+  <div class="placeholder" id="placeholder">
+    <div class="cam-icon">📷</div>
+    <div class="placeholder-text">CAMERA STANDBY</div>
+  </div>
+  <video id="localVideo" autoplay muted playsinline></video>
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+  <div class="crosshair"></div>
+  <div class="timestamp" id="tsOverlay"></div>
+  <div class="res-tag" id="resTag"></div>
+  <button class="cam-flip" id="flipBtn" title="Flip Camera">🔄</button>
+</div>
+
+<div class="bottom">
+  <div class="room-row">
+    <input class="room-input" id="roomId" placeholder="ENTER ROOM CODE" maxlength="20" />
+    <button class="btn btn-go" id="startBtn">▶ BROADCAST</button>
+    <button class="btn btn-stop" id="stopBtn" disabled>■ STOP</button>
+  </div>
+
+  <div class="share-row" id="shareRow" style="display:none">
+    <span class="share-label">VIEWER URL:</span>
+    <span class="share-link" id="shareLink"></span>
+    <button class="btn-copy" id="copyBtn">COPY</button>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-left">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">STANDBY — ENTER ROOM CODE</span>
+    </div>
+    <div class="viewer-count" id="viewerCount"></div>
+  </div>
+</div>
+
+<script>
+// ── Timestamp clock ──
+const tsEl = document.getElementById('tsOverlay');
+function tick() {
+  const now = new Date();
+  tsEl.textContent = now.toLocaleDateString('en-GB') + '  ' + now.toTimeString().slice(0,8);
+}
+tick(); setInterval(tick, 1000);
+
+// ── DOM refs ──
+const roomInput  = document.getElementById('roomId');
+const startBtn   = document.getElementById('startBtn');
+const stopBtn    = document.getElementById('stopBtn');
+const statusDot  = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const viewerEl   = document.getElementById('viewerCount');
+const recBadge   = document.getElementById('recBadge');
+const localVideo = document.getElementById('localVideo');
+const placeholder= document.getElementById('placeholder');
+const flipBtn    = document.getElementById('flipBtn');
+const resTag     = document.getElementById('resTag');
+const shareRow   = document.getElementById('shareRow');
+const shareLink  = document.getElementById('shareLink');
+const copyBtn    = document.getElementById('copyBtn');
+
+let connection, viewers = 0, facingMode = 'environment', currentStream;
+
+function setStatus(msg, type='') {
+  statusText.textContent = msg;
+  statusText.className = type;
+  statusDot.className = 'status-dot' + (type ? ' ' + type : '');
+}
+
+// ── Copy viewer URL ──
+copyBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(shareLink.textContent).then(() => {
+    copyBtn.textContent = '✓ COPIED';
+    setTimeout(() => copyBtn.textContent = 'COPY', 2000);
+  });
+});
+
+// ── Start broadcast ──
+startBtn.addEventListener('click', async () => {
+  const room = roomInput.value.trim().toUpperCase();
+  if (!room) { setStatus('⚠ ENTER A ROOM CODE', 'error'); return; }
+
+  startBtn.disabled = true;
+  setStatus('INITIALISING CAMERA…');
+
+  try {
+    currentStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: true
+    });
+  } catch(e) {
+    setStatus('⚠ CAMERA ACCESS DENIED', 'error');
+    startBtn.disabled = false;
+    return;
+  }
+
+  // Show local preview
+  localVideo.srcObject = currentStream;
+  placeholder.style.display = 'none';
+
+  // Show resolution
+  const track = currentStream.getVideoTracks()[0];
+  const settings = track.getSettings();
+  resTag.textContent = `${settings.width || 1280}×${settings.height || 720}`;
+
+  // RTCMultiConnection setup
+  connection = new RTCMultiConnection();
+  connection.socketURL = 'https://rtcmulticonnection.herokuapp.com:443/';
+  connection.session = { audio: true, video: true, oneway: true };
+  connection.sdpConstraints.mandatory = { OfferToReceiveAudio: false, OfferToReceiveVideo: false };
+
+  connection.onUserStatusChanged = function(e) {
+    if (e.status === 'online') viewers++;
+    if (e.status === 'offline' && viewers > 0) viewers--;
+    viewerEl.textContent = viewers > 0 ? `👁 ${viewers} VIEWER${viewers>1?'S':''}` : '';
+  };
+
+  connection.addStream(currentStream);
+  connection.open(room, function(isRoomOpened, roomid) {
+    if (isRoomOpened) {
+      setStatus('BROADCASTING — ROOM: ' + room, 'live');
+      recBadge.classList.remove('hidden');
+      stopBtn.disabled = false;
+      roomInput.disabled = true;
+      flipBtn.style.display = 'none';
+
+      // Build viewer URL
+      const base = window.location.href.replace('broadcaster.html', 'viewer.html');
+      const vUrl = base + '?room=' + encodeURIComponent(room);
+      shareLink.textContent = vUrl;
+      shareRow.style.display = 'flex';
+    } else {
+      setStatus('⚠ FAILED TO OPEN ROOM', 'error');
+      startBtn.disabled = false;
+      cleanupStream();
+    }
+  });
+});
+
+// ── Stop broadcast ──
+stopBtn.addEventListener('click', stop);
+
+function stop() {
+  if (connection) { try { connection.closeEntireSession(); } catch(e){} connection = null; }
+  cleanupStream();
+  recBadge.classList.add('hidden');
+  stopBtn.disabled = true;
+  startBtn.disabled = false;
+  roomInput.disabled = false;
+  flipBtn.style.display = 'flex';
+  shareRow.style.display = 'none';
+  viewers = 0;
+  viewerEl.textContent = '';
+  resTag.textContent = '';
+  setStatus('STANDBY — ENTER ROOM CODE');
+}
+
+function cleanupStream() {
+  if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); currentStream = null; }
+  localVideo.srcObject = null;
+  placeholder.style.display = 'flex';
+}
+
+// ── Flip camera ──
+flipBtn.addEventListener('click', () => {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  flipBtn.textContent = '🔄';
+});
+</script>
+</body>
+</html>

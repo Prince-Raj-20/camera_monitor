@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>CCTV Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/rtcmulticonnection@3.6.9/dist/RTCMultiConnection.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --amber: #ffb300;
+    --green: #00ff88;
+    --red: #ff2020;
+    --blue: #00cfff;
+    --bg: #07090d;
+    --panel: #0b0e14;
+    --border: #1a2030;
+    --text: #c8e8ff;
+    --dim: #3a5570;
+    --mono: 'Share Tech Mono', monospace;
+    --display: 'Orbitron', sans-serif;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); overflow: hidden; }
+
+  /* scan lines */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,207,255,0.012) 2px, rgba(0,207,255,0.012) 4px);
+    pointer-events: none; z-index: 9999;
+  }
+
+  /* vignette */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.75) 100%);
+    pointer-events: none; z-index: 9998;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    position: relative; z-index: 10;
+  }
+
+  .logo { font-family: var(--display); font-size: 13px; font-weight: 900; letter-spacing: 4px; color: var(--blue); }
+
+  .ch-label { font-size: 10px; letter-spacing: 3px; color: var(--dim); font-family: var(--display); }
+
+  /* ── VIDEO AREA ── */
+  .video-wrap {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 56px - 130px);
+    background: #000;
+    overflow: hidden;
+  }
+
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  /* corner markers */
+  .corner { position: absolute; width: 28px; height: 28px; border-color: var(--blue); border-style: solid; opacity: 0.7; }
+  .corner.tl { top:10px;left:10px; border-width:2px 0 0 2px; }
+  .corner.tr { top:10px;right:10px; border-width:2px 2px 0 0; }
+  .corner.bl { bottom:10px;left:10px; border-width:0 0 2px 2px; }
+  .corner.br { bottom:10px;right:10px; border-width:0 2px 2px 0; }
+
+  /* scan line on video */
+  .scanline {
+    position: absolute; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(0,207,255,0.4), transparent);
+    animation: scan 3s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes scan { 0%{top:-2px} 100%{top:100%} }
+
+  /* overlays */
+  .ts-overlay {
+    position: absolute; bottom:12px; left:12px;
+    font-size: 11px; color: var(--blue); opacity: 0.8; letter-spacing: 1px;
+  }
+  .ch-overlay {
+    position: absolute; top:12px; left:12px;
+    font-size: 10px; color: var(--amber); letter-spacing: 2px; opacity: 0.7;
+  }
+  .res-overlay {
+    position: absolute; top:12px; right:12px;
+    font-size: 10px; color: var(--amber); letter-spacing: 2px; opacity: 0.7;
+  }
+
+  /* LIVE badge */
+  .live-badge {
+    position: absolute; top:12px; left:50%; transform:translateX(-50%);
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(255,32,32,0.15);
+    border: 1px solid var(--red);
+    border-radius: 3px;
+    padding: 4px 10px;
+    font-family: var(--display);
+    font-size: 10px;
+    color: var(--red);
+    letter-spacing: 3px;
+    opacity: 0;
+    transition: opacity .4s;
+  }
+  .live-badge.show { opacity: 1; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px var(--red); animation: blink 1s infinite; }
+  @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+
+  /* placeholder */
+  .placeholder {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: #04060a;
+  }
+
+  .monitor-icon { font-size: 64px; opacity: 0.12; }
+
+  .loading-ring {
+    width: 48px; height: 48px;
+    border: 2px solid var(--border);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .placeholder-text { font-family: var(--display); font-size: 11px; letter-spacing: 3px; color: var(--dim); }
+
+  /* ── BOTTOM ── */
+  .bottom {
+    padding: 12px 16px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+
+  .room-row { display: flex; gap: 8px; align-items: center; }
+
+  .room-input {
+    flex: 1;
+    background: #080b12;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 9px 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--blue);
+    outline: none;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    transition: border-color .2s;
+  }
+  .room-input:focus { border-color: var(--blue); }
+  .room-input::placeholder { color: var(--dim); letter-spacing: 1px; }
+
+  .btn {
+    padding: 9px 18px;
+    border: none; border-radius: 4px;
+    font-family: var(--display); font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    cursor: pointer; transition: all .2s; white-space: nowrap;
+  }
+
+  .btn-connect { background: var(--blue); color: #020508; }
+  .btn-connect:hover { box-shadow: 0 0 16px var(--blue); transform: scale(1.02); }
+
+  .btn-disconnect { background: #222d3a; color: var(--red); border: 1px solid var(--red); }
+  .btn-disconnect:hover { background: rgba(255,32,32,0.1); }
+
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+  .status-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 10px; color: var(--dim); letter-spacing: 1px;
+  }
+
+  .status-left { display: flex; align-items: center; gap: 8px; }
+
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--dim); transition: background .3s, box-shadow .3s;
+  }
+  .status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  .status-dot.error { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  #statusText.live { color: var(--green); }
+  #statusText.error { color: var(--red); }
+
+  /* volume */
+  .vol-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 10px; color: var(--dim); letter-spacing: 1px;
+  }
+  input[type=range] {
+    flex: 1;
+    accent-color: var(--blue);
+  }
+
+  .mute-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--blue);
+    font-family: var(--mono);
+    font-size: 16px;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  .mute-btn:hover { border-color: var(--blue); }
+
+  /* fullscreen btn */
+  .fs-btn {
+    position: absolute; bottom:12px; right:12px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--blue);
+    font-size: 16px;
+    padding: 4px 8px;
+    cursor: pointer;
+    transition: background .2s;
+    z-index: 5;
+  }
+  .fs-btn:hover { background: rgba(0,207,255,0.12); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">🖥 CCTV-MON</div>
+  <div class="ch-label">MONITOR MODE</div>
+</div>
+
+<div class="video-wrap" id="videoWrap">
+  <div class="placeholder" id="placeholder">
+    <div class="monitor-icon">📺</div>
+    <div class="loading-ring" id="loadingRing"></div>
+    <div class="placeholder-text" id="placeholderText">ENTER ROOM CODE TO MONITOR</div>
+  </div>
+  <video id="remoteVideo" autoplay playsinline></video>
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+  <div class="scanline"></div>
+  <div class="ts-overlay" id="tsOverlay"></div>
+  <div class="ch-overlay" id="chOverlay"></div>
+  <div class="res-overlay" id="resOverlay"></div>
+  <div class="live-badge" id="liveBadge"><div class="live-dot"></div>LIVE</div>
+  <button class="fs-btn" id="fsBtn" title="Fullscreen">⛶</button>
+</div>
+
+<div class="bottom">
+  <div class="room-row">
+    <input class="room-input" id="roomId" placeholder="ENTER ROOM CODE" maxlength="20" />
+    <button class="btn btn-connect" id="connectBtn">▶ CONNECT</button>
+    <button class="btn btn-disconnect" id="disconnectBtn" disabled>■ LEAVE</button>
+  </div>
+
+  <div class="vol-row">
+    <button class="mute-btn" id="muteBtn">🔊</button>
+    <span>VOL</span>
+    <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1" />
+  </div>
+
+  <div class="status-bar">
+    <div class="status-left">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">STANDBY — WAITING FOR ROOM CODE</span>
+    </div>
+    <div id="latencyEl" style="font-size:10px;color:var(--dim);letter-spacing:1px;"></div>
+  </div>
+</div>
+
+<script>
+// ── Auto-fill room from URL param ──
+const params = new URLSearchParams(window.location.search);
+if (params.get('room')) {
+  document.getElementById('roomId').value = params.get('room').toUpperCase();
+}
+
+// ── Clock ──
+const tsEl = document.getElementById('tsOverlay');
+function tick() {
+  const n = new Date();
+  tsEl.textContent = n.toLocaleDateString('en-GB') + '  ' + n.toTimeString().slice(0,8);
+}
+tick(); setInterval(tick, 1000);
+
+// ── DOM refs ──
+const roomInput      = document.getElementById('roomId');
+const connectBtn     = document.getElementById('connectBtn');
+const disconnectBtn  = document.getElementById('disconnectBtn');
+const statusDot      = document.getElementById('statusDot');
+const statusText     = document.getElementById('statusText');
+const remoteVideo    = document.getElementById('remoteVideo');
+const placeholder    = document.getElementById('placeholder');
+const placeholderTxt = document.getElementById('placeholderText');
+const loadingRing    = document.getElementById('loadingRing');
+const liveBadge      = document.getElementById('liveBadge');
+const chOverlay      = document.getElementById('chOverlay');
+const resOverlay     = document.getElementById('resOverlay');
+const volSlider      = document.getElementById('volSlider');
+const muteBtn        = document.getElementById('muteBtn');
+const fsBtn          = document.getElementById('fsBtn');
+const latencyEl      = document.getElementById('latencyEl');
+
+let connection, muted = false, latencyTimer;
+
+function setStatus(msg, type='') {
+  statusText.textContent = msg;
+  statusText.className = type;
+  statusDot.className = 'status-dot' + (type ? ' ' + type : '');
+}
+
+// ── Volume & mute ──
+volSlider.addEventListener('input', () => {
+  if (remoteVideo) remoteVideo.volume = volSlider.value;
+});
+
+muteBtn.addEventListener('click', () => {
+  muted = !muted;
+  if (remoteVideo) remoteVideo.muted = muted;
+  muteBtn.textContent = muted ? '🔇' : '🔊';
+});
+
+// ── Fullscreen ──
+fsBtn.addEventListener('click', () => {
+  const wrap = document.getElementById('videoWrap');
+  if (!document.fullscreenElement) { wrap.requestFullscreen && wrap.requestFullscreen(); }
+  else { document.exitFullscreen && document.exitFullscreen(); }
+});
+
+// ── Connect ──
+connectBtn.addEventListener('click', () => {
+  const room = roomInput.value.trim().toUpperCase();
+  if (!room) { setStatus('⚠ ENTER A ROOM CODE', 'error'); return; }
+
+  connectBtn.disabled = true;
+  setStatus('SEARCHING FOR BROADCAST…');
+  loadingRing.style.display = 'block';
+  placeholderTxt.textContent = 'SEARCHING ROOM: ' + room;
+
+  connection = new RTCMultiConnection();
+  connection.socketURL = 'https://rtcmulticonnection.herokuapp.com:443/';
+  connection.session = { audio: true, video: true, oneway: true };
+  connection.sdpConstraints.mandatory = { OfferToReceiveAudio: true, OfferToReceiveVideo: true };
+
+  let startTime;
+
+  connection.onstream = function(event) {
+    startTime = Date.now();
+    remoteVideo.srcObject = event.stream;
+    remoteVideo.volume = volSlider.value;
+    placeholder.style.display = 'none';
+    liveBadge.classList.add('show');
+    chOverlay.textContent = 'CH-01  ROOM:' + room;
+
+    // show resolution once video playing
+    remoteVideo.onloadedmetadata = () => {
+      resOverlay.textContent = `${remoteVideo.videoWidth}×${remoteVideo.videoHeight}`;
+    };
+
+    setStatus('RECEIVING STREAM — ROOM: ' + room, 'live');
+    disconnectBtn.disabled = false;
+    roomInput.disabled = true;
+
+    // fake-ish latency display using connection stats
+    latencyTimer = setInterval(async () => {
+      try {
+        const senders = connection.peers && Object.values(connection.peers);
+        if (!senders || !senders.length) return;
+        const pc = senders[0] && senders[0].peer;
+        if (!pc || !pc.getStats) return;
+        const stats = await pc.getStats();
+        stats.forEach(report => {
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            const rtt = report.currentRoundTripTime;
+            if (rtt !== undefined) latencyEl.textContent = `RTT: ${(rtt*1000).toFixed(0)}ms`;
+          }
+        });
+      } catch(e) {}
+    }, 2000);
+  };
+
+  connection.onstreamended = function() {
+    disconnectCleanup();
+    setStatus('⚠ STREAM ENDED BY BROADCASTER', 'error');
+  };
+
+  connection.onerror = function(e) {
+    setStatus('⚠ CONNECTION ERROR', 'error');
+  };
+
+  // Try joining the room
+  connection.join({ sessionid: room, userid: room, extra: {}, session: connection.session });
+
+  // Fallback: if no stream after 12s
+  setTimeout(() => {
+    if (placeholder.style.display !== 'none') return; // already connected
+    if (!remoteVideo.srcObject) {
+      setStatus('⚠ NO BROADCAST FOUND IN ROOM: ' + room, 'error');
+      loadingRing.style.display = 'none';
+      placeholderTxt.textContent = 'NO STREAM FOUND';
+      connectBtn.disabled = false;
+      if (connection) { try{connection.closeEntireSession();}catch(e){} connection = null; }
+    }
+  }, 12000);
+});
+
+// ── Disconnect ──
+disconnectBtn.addEventListener('click', () => {
+  disconnectCleanup();
+  setStatus('DISCONNECTED');
+});
+
+function disconnectCleanup() {
+  if (latencyTimer) { clearInterval(latencyTimer); latencyTimer = null; }
+  if (connection) { try{connection.closeEntireSession();}catch(e){} connection = null; }
+  remoteVideo.srcObject = null;
+  placeholder.style.display = 'flex';
+  loadingRing.style.display = 'none';
+  placeholderTxt.textContent = 'ENTER ROOM CODE TO MONITOR';
+  liveBadge.classList.remove('show');
+  chOverlay.textContent = '';
+  resOverlay.textContent = '';
+  latencyEl.textContent = '';
+  disconnectBtn.disabled = true;
+  connectBtn.disabled = false;
+  roomInput.disabled = false;
+}
+</script>
+</body>
+</html>
